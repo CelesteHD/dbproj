@@ -23,8 +23,6 @@ public class Tuple implements Serializable {
      */
     public Tuple(TupleDesc td) {
         // some code goes here
-        this.td = td;
-        this.recordId = null;
     }
 
     /**
@@ -32,8 +30,7 @@ public class Tuple implements Serializable {
      */
     public TupleDesc getTupleDesc() {
         // some code goes here
-        return this.td;
-        // return null;
+        return null;
     }
 
     /**
@@ -42,8 +39,7 @@ public class Tuple implements Serializable {
      */
     public RecordId getRecordId() {
         // some code goes here
-        // return null;
-        return this.recordId;
+        return null;
     }
 
     /**
@@ -54,7 +50,6 @@ public class Tuple implements Serializable {
      */
     public void setRecordId(RecordId rid) {
         // some code goes here
-        this.recordId = rid;
     }
 
     /**

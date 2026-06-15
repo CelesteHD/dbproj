@@ -6,10 +6,10 @@ Welcome!
 ## Labs
 Your project consists of four labs. You are *strongly advised* to start early.  
 
-* [Lab 1](lab1.md): due **March 6, 2026 11:59pm (week 6)**.
-* [Lab 2](lab2.md): due **March 20, 2026 11:59pm (week 8)**.
-* [Lab 3](lab3.md): due **April 3, 2026 11:59pm (week 11)**. 
-* [Lab 4](lab4.md): due **April 24, 2026 11:59pm (week 13)**. 
+* [Lab 1](lab1.md): due **June 26, 2026 11:59pm (week 6)**.
+* [Lab 2](lab2.md): due **July 10, 2026 11:59pm (week 8)**.
+* [Lab 3](lab3.md): due **July 24, 2026 11:59pm (week 11)**. 
+* [Lab 4](lab4.md): due **August 12, 2026 11:59pm (week 13)**. 
 
 Each lab is given **10 points**: **8** for passing all the tests, and **2** for the report. 
 
