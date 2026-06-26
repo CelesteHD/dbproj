@@ -192,13 +192,14 @@ public class HeapFile implements DbFile {
     		tupleIterator = null;
     		currentPageNo = 0;
 	}
-    	// helper: load one page THROUGH THE BUFFERPOOL and return its tuple iterator
+    	// helper: load one page through the buffer pool and return its tuple iterator
     	private Iterator<Tuple> getTupleIteratorForPage(int pageNo)
            	throws DbException, TransactionAbortedException {
-        	// YOUR LOGIC:
-        	// - build a HeapPageId for (this table's id, pageNo)
-        	// - call Database.getBufferPool().getPage(tid, pid, Permissions.READ_ONLY)
-        	// - cast to HeapPage, return its .iterator()
+        	/*
+			* - build a HeapPageId for (this table's id, pageNo)
+        	* - call Database.getBufferPool().getPage(tid, pid, Permissions.READ_ONLY)
+        	* - cast to HeapPage, return its .iterator() 
+			*/
 		HeapPageId hpid = new HeapPageId(getId(), pageNo);
 		HeapPage page = (HeapPage) Database.getBufferPool().getPage(tid, hpid, Permissions.READ_ONLY);
 		return page.iterator();
