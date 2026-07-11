@@ -10,6 +10,8 @@ import simpledb.transaction.TransactionId;
 import java.io.*;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.LinkedList;
+import java.util.List;
 
 /**
  * BufferPool manages the reading and writing of pages into memory from
@@ -34,7 +36,7 @@ public class BufferPool {
     public static final int DEFAULT_PAGES = 50;
     private final int numPages;
     private final ConcurrentHashMap<PageId, Page> pageCache;
-
+    private final LinkedList<PageId> lruOrder;
     /**
      * Creates a BufferPool that caches up to numPages pages.
      *
@@ -43,6 +45,7 @@ public class BufferPool {
     public BufferPool(int numPages) {
         this.numPages = numPages;
         this.pageCache = new ConcurrentHashMap<>();
+	this.lruOrder = new LinkedList<>();
     }
     
     public static int getPageSize() {
@@ -77,17 +80,24 @@ public class BufferPool {
     public Page getPage(TransactionId tid, PageId pid, Permissions perm) throws TransactionAbortedException, DbException {
     // if page already in cache, return it
         if (pageCache.containsKey(pid)) {
+	    touch(pid);
             return pageCache.get(pid);
         }
-        // if cache is full, throw exception (eviction is for later labs)
+        // if cache is full, evict
         if (pageCache.size() >= numPages) {
-            throw new DbException("Buffer pool is full");
+            evictPage();
         }
         // read page from disk
         DbFile file = Database.getCatalog().getDatabaseFile(pid.getTableId());
         Page page = file.readPage(pid);
         pageCache.put(pid, page);
+	touch(pid);
         return page;
+    }
+
+    private synchronized void touch(PageId pid) {
+    lruOrder.remove(pid);
+    lruOrder.addLast(pid);
     }
 
     /**
@@ -152,6 +162,12 @@ public class BufferPool {
         throws DbException, IOException, TransactionAbortedException {
         // some code goes here
         // not necessary for lab1
+        DbFile file = Database.getCatalog().getDatabaseFile(tableId);
+    	List<Page> dirtied = file.insertTuple(tid, t);
+    	for (Page p : dirtied) {
+        	p.markDirty(true, tid);
+        	pageCache.put(p.getId(), p);
+    	}
     }
 
     /**
@@ -171,6 +187,13 @@ public class BufferPool {
         throws DbException, IOException, TransactionAbortedException {
         // some code goes here
         // not necessary for lab1
+	int tableId = t.getRecordId().getPageId().getTableId();
+    	DbFile file = Database.getCatalog().getDatabaseFile(tableId);
+    	List<Page> dirtied = file.deleteTuple(tid, t);
+    	for (Page p : dirtied) {
+        	p.markDirty(true, tid);
+        	pageCache.put(p.getId(), p);
+    	}
     }
 
     /**
@@ -181,7 +204,9 @@ public class BufferPool {
     public synchronized void flushAllPages() throws IOException {
         // some code goes here
         // not necessary for lab1
-
+	for (PageId pid : pageCache.keySet()) {
+        	flushPage(pid);
+    	}
     }
 
     /** Remove the specific page id from the buffer pool.
@@ -195,6 +220,8 @@ public class BufferPool {
     public synchronized void discardPage(PageId pid) {
         // some code goes here
         // not necessary for lab1
+	pageCache.remove(pid);
+   	lruOrder.remove(pid);
     }
 
     /**
@@ -204,6 +231,15 @@ public class BufferPool {
     private synchronized  void flushPage(PageId pid) throws IOException {
         // some code goes here
         // not necessary for lab1
+	Page page = pageCache.get(pid);
+    	if (page == null) {
+        	return;
+    	}
+    	if (page.isDirty() != null) {
+        	DbFile file = Database.getCatalog().getDatabaseFile(pid.getTableId());
+        	file.writePage(page);
+        	page.markDirty(false, null);
+    	}
     }
 
     /** Write all pages of the specified transaction to disk.
@@ -220,6 +256,17 @@ public class BufferPool {
     private synchronized  void evictPage() throws DbException {
         // some code goes here
         // not necessary for lab1
+	if (lruOrder.isEmpty()) {
+        	throw new DbException("no page to evict");
+    	}
+    	PageId victim = lruOrder.peekFirst();
+    	try {
+        	flushPage(victim);
+    	} catch (IOException e) {
+        	throw new DbException("failed to flush page during eviction");
+    	}
+    	pageCache.remove(victim);
+    	lruOrder.remove(victim);
     }
 
 }

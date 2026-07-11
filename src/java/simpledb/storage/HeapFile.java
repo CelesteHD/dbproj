@@ -108,6 +108,12 @@ public class HeapFile implements DbFile {
     public void writePage(Page page) throws IOException {
         // some code goes here
         // not necessary for lab1
+	int pageSize = BufferPool.getPageSize();
+    	int offset = page.getId().getPageNumber() * pageSize;
+    	try (RandomAccessFile raf = new RandomAccessFile(file, "rw")) {
+        	raf.seek(offset);
+        	raf.write(page.getPageData());
+    	}
     }
 
     /**
@@ -122,15 +128,43 @@ public class HeapFile implements DbFile {
     public List<Page> insertTuple(TransactionId tid, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
         // some code goes here
-        return null;
+        ArrayList<Page> modified = new ArrayList<>();
         // not necessary for lab1
+	for (int i = 0; i < numPages(); i++) {
+        	HeapPageId pid = new HeapPageId(getId(), i);
+        	HeapPage page = (HeapPage) Database.getBufferPool()
+                	.getPage(tid, pid, Permissions.READ_WRITE);
+        	if (page.getNumEmptySlots() > 0) {
+            		page.insertTuple(t);
+            		modified.add(page);
+            	return modified;
+        	}
+    	}
+
+    	HeapPageId newPid = new HeapPageId(getId(), numPages());
+    	HeapPage newPage = new HeapPage(newPid, HeapPage.createEmptyPageData());
+    	writePage(newPage);
+    	HeapPage page = (HeapPage) Database.getBufferPool()
+        	.getPage(tid, newPid, Permissions.READ_WRITE);
+    	page.insertTuple(t);
+    	modified.add(page);
+    	return modified;
     }
 
     // see DbFile.java for javadocs
     public ArrayList<Page> deleteTuple(TransactionId tid, Tuple t) throws DbException,
             TransactionAbortedException {
         // some code goes here
-        return null;
+        RecordId rid = t.getRecordId();
+    	if (rid == null || rid.getPageId().getTableId() != getId()) {
+        	throw new DbException("tuple is not a member of this file");
+    	}
+    	HeapPage page = (HeapPage) Database.getBufferPool()
+        	.getPage(tid, rid.getPageId(), Permissions.READ_WRITE);
+    	page.deleteTuple(t);
+    	ArrayList<Page> modified = new ArrayList<>();
+    	modified.add(page);
+    	return modified;
         // not necessary for lab1
     }
 
