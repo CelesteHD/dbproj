@@ -81,7 +81,6 @@ public class BufferPool {
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
         throws TransactionAbortedException, DbException {
-    // acquire lock first
         lockManager.acquireLock(tid, pid, perm);
 
         if (pageCache.containsKey(pid)) {
@@ -132,6 +131,7 @@ public class BufferPool {
         }
         lockManager.releaseAllLocks(tid);
     }
+
     public void unsafeReleasePage(TransactionId tid, PageId pid) {
         lockManager.releaseLock(tid, pid);
     }
@@ -140,6 +140,7 @@ public class BufferPool {
     public boolean holdsLock(TransactionId tid, PageId p) {
         return lockManager.holdsLock(tid, p);
     }
+
     private synchronized void touch(PageId pid) {
         lruOrder.remove(pid);
         lruOrder.addLast(pid);
@@ -152,6 +153,8 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      * @param commit a flag indicating whether we should commit or abort
      */
+
+
     public void transactionComplete(TransactionId tid) {
         //ex 4: transactionComplete to be done here
     }
@@ -175,8 +178,6 @@ public class BufferPool {
      */
     public void insertTuple(TransactionId tid, int tableId, Tuple t)
         throws DbException, IOException, TransactionAbortedException {
-        // some code goes here
-        // not necessary for lab1
         DbFile file = Database.getCatalog().getDatabaseFile(tableId);
     	List<Page> dirtied = file.insertTuple(tid, t);
     	for (Page p : dirtied) {
@@ -217,8 +218,6 @@ public class BufferPool {
      *     break simpledb if running in NO STEAL mode.
      */
     public synchronized void flushAllPages() throws IOException {
-        // some code goes here
-        // not necessary for lab1
         for (PageId pid : pageCache.keySet()) {
                 flushPage(pid);
             }
@@ -235,7 +234,7 @@ public class BufferPool {
     public synchronized void discardPage(PageId pid) {
         pageCache.remove(pid);
         lruOrder.remove(pid);
-        }
+    }
 
     /**
      * Flushes a certain page to disk
@@ -252,7 +251,7 @@ public class BufferPool {
                 file.writePage(page);
                 page.markDirty(false, null);
             }
-        }
+    }
 
     /** Write all pages of the specified transaction to disk.
      */
@@ -268,7 +267,6 @@ public class BufferPool {
         for (PageId pid : lruOrder) {
             Page page = pageCache.get(pid);
             if (page != null && page.isDirty() == null) {
-                // clean page — safe to evict
                 try { flushPage(pid); } catch (IOException e) {
                     throw new DbException("flush failed");
                 }
@@ -304,13 +302,12 @@ public class BufferPool {
                 throws TransactionAbortedException {
             while (true) {
                 TransactionId excHolder = exclusiveLocks.get(pid);
-                // no exclusive lock, or we hold it ourselves
                 if (excHolder == null || excHolder.equals(tid)) {
                     sharedLocks.computeIfAbsent(pid, k -> ConcurrentHashMap.newKeySet()).add(tid);
                     waitingFor.remove(tid);
                     return;
                 }
-                // deadlock detection
+                // deadlock detection done for waitingFor
                 waitingFor.put(tid, Collections.singleton(pid));
                 if (hasDeadlock(tid)) {
                     waitingFor.remove(tid);
@@ -357,9 +354,7 @@ public class BufferPool {
         }
 
         public synchronized void releaseAllLocks(TransactionId tid) {
-            // release exclusive locks
             exclusiveLocks.entrySet().removeIf(e -> e.getValue().equals(tid));
-            // release shared locks
             for (Set<TransactionId> holders : sharedLocks.values()) {
                 holders.remove(tid);
             }
