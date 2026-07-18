@@ -8,6 +8,8 @@ import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 import java.io.*;
+import java.util.*;
+
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.LinkedList;
@@ -77,29 +79,25 @@ public class BufferPool {
      * @param pid the ID of the requested page
      * @param perm the requested permissions on the page
      */
-    public Page getPage(TransactionId tid, PageId pid, Permissions perm) throws TransactionAbortedException, DbException {
-    // if page already in cache, return it
+    public Page getPage(TransactionId tid, PageId pid, Permissions perm)
+        throws TransactionAbortedException, DbException {
+    // acquire lock first
+        lockManager.acquireLock(tid, pid, perm);
+
         if (pageCache.containsKey(pid)) {
-	    touch(pid);
+            touch(pid);
             return pageCache.get(pid);
         }
-        // if cache is full, evict
         if (pageCache.size() >= numPages) {
             evictPage();
         }
-        // read page from disk
         DbFile file = Database.getCatalog().getDatabaseFile(pid.getTableId());
         Page page = file.readPage(pid);
         pageCache.put(pid, page);
-	touch(pid);
+        touch(pid);
         return page;
     }
-
-    private synchronized void touch(PageId pid) {
-    lruOrder.remove(pid);
-    lruOrder.addLast(pid);
-    }
-
+    
     /**
      * Releases the lock on a page.
      * Calling this is very risky, and may result in wrong behavior. Think hard
@@ -109,26 +107,42 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      * @param pid the ID of the page to unlock
      */
-    public  void unsafeReleasePage(TransactionId tid, PageId pid) {
-        // some code goes here
-        // not necessary for lab1|lab2
-    }
-
     /**
      * Release all locks associated with a given transaction.
      *
      * @param tid the ID of the transaction requesting the unlock
      */
-    public void transactionComplete(TransactionId tid) {
-        // some code goes here
-        // not necessary for lab1|lab2
+    
+
+    public void transactionComplete(TransactionId tid, boolean commit) {
+        try {
+            if (commit) {
+                flushPages(tid); // force dirty pages to disk
+            } else {
+                // abort: discard dirty pages so they revert to disk state
+                for (PageId pid : lockManager.getPagesHeldBy(tid)) {
+                    Page page = pageCache.get(pid);
+                    if (page != null && tid.equals(page.isDirty())) {
+                        discardPage(pid);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        lockManager.releaseAllLocks(tid);
+    }
+    public void unsafeReleasePage(TransactionId tid, PageId pid) {
+        lockManager.releaseLock(tid, pid);
     }
 
     /** Return true if the specified transaction has a lock on the specified page */
     public boolean holdsLock(TransactionId tid, PageId p) {
-        // some code goes here
-        // not necessary for lab1|lab2
-        return false;
+        return lockManager.holdsLock(tid, p);
+    }
+    private synchronized void touch(PageId pid) {
+        lruOrder.remove(pid);
+        lruOrder.addLast(pid);
     }
 
     /**
@@ -138,10 +152,11 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      * @param commit a flag indicating whether we should commit or abort
      */
-    public void transactionComplete(TransactionId tid, boolean commit) {
-        // some code goes here
-        // not necessary for lab1|lab2
+    public void transactionComplete(TransactionId tid) {
+        //ex 4: transactionComplete to be done here
     }
+
+   
 
     /**
      * Add a tuple to the specified table on behalf of transaction tid.  Will
@@ -204,10 +219,10 @@ public class BufferPool {
     public synchronized void flushAllPages() throws IOException {
         // some code goes here
         // not necessary for lab1
-	for (PageId pid : pageCache.keySet()) {
-        	flushPage(pid);
-    	}
-    }
+        for (PageId pid : pageCache.keySet()) {
+                flushPage(pid);
+            }
+        }
 
     /** Remove the specific page id from the buffer pool.
         Needed by the recovery manager to ensure that the
@@ -218,55 +233,157 @@ public class BufferPool {
         are removed from the cache so they can be reused safely
     */
     public synchronized void discardPage(PageId pid) {
-        // some code goes here
-        // not necessary for lab1
-	pageCache.remove(pid);
-   	lruOrder.remove(pid);
-    }
+        pageCache.remove(pid);
+        lruOrder.remove(pid);
+        }
 
     /**
      * Flushes a certain page to disk
      * @param pid an ID indicating the page to flush
      */
     private synchronized  void flushPage(PageId pid) throws IOException {
-        // some code goes here
-        // not necessary for lab1
-	Page page = pageCache.get(pid);
-    	if (page == null) {
-        	return;
-    	}
-    	if (page.isDirty() != null) {
-        	DbFile file = Database.getCatalog().getDatabaseFile(pid.getTableId());
-        	file.writePage(page);
-        	page.markDirty(false, null);
-    	}
-    }
+
+        Page page = pageCache.get(pid);
+            if (page == null) {
+                return;
+            }
+            if (page.isDirty() != null) {
+                DbFile file = Database.getCatalog().getDatabaseFile(pid.getTableId());
+                file.writePage(page);
+                page.markDirty(false, null);
+            }
+        }
 
     /** Write all pages of the specified transaction to disk.
      */
-    public synchronized  void flushPages(TransactionId tid) throws IOException {
-        // some code goes here
-        // not necessary for lab1|lab2
+    public synchronized void flushPages(TransactionId tid) throws IOException {
+        //exercise 4: flushPages to be done here
     }
 
     /**
      * Discards a page from the buffer pool.
      * Flushes the page to disk to ensure dirty pages are updated on disk.
      */
-    private synchronized  void evictPage() throws DbException {
-        // some code goes here
-        // not necessary for lab1
-	if (lruOrder.isEmpty()) {
-        	throw new DbException("no page to evict");
-    	}
-    	PageId victim = lruOrder.peekFirst();
-    	try {
-        	flushPage(victim);
-    	} catch (IOException e) {
-        	throw new DbException("failed to flush page during eviction");
-    	}
-    	pageCache.remove(victim);
-    	lruOrder.remove(victim);
+    private synchronized void evictPage() throws DbException {
+        for (PageId pid : lruOrder) {
+            Page page = pageCache.get(pid);
+            if (page != null && page.isDirty() == null) {
+                // clean page — safe to evict
+                try { flushPage(pid); } catch (IOException e) {
+                    throw new DbException("flush failed");
+                }
+                pageCache.remove(pid);
+                lruOrder.remove(pid);
+                return;
+            }
+        }
+        throw new DbException("All pages are dirty, cannot evict");
+    }
+	
+
+    private final LockManager lockManager = new LockManager();
+
+    private class LockManager {
+
+        // guimi Ex 5: hasDeadlock() + dfs() not implemented yet in this class
+
+        private final ConcurrentHashMap<PageId, Set<TransactionId>> sharedLocks = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<PageId, TransactionId> exclusiveLocks = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<TransactionId, Set<PageId>> waitingFor = new ConcurrentHashMap<>();
+
+        public synchronized void acquireLock(TransactionId tid, PageId pid, Permissions perm)
+                throws TransactionAbortedException {
+            if (perm == Permissions.READ_ONLY) {
+                acquireSharedLock(tid, pid);
+            } else {
+                acquireExclusiveLock(tid, pid);
+            }
+        }
+
+        private synchronized void acquireSharedLock(TransactionId tid, PageId pid)
+                throws TransactionAbortedException {
+            while (true) {
+                TransactionId excHolder = exclusiveLocks.get(pid);
+                // no exclusive lock, or we hold it ourselves
+                if (excHolder == null || excHolder.equals(tid)) {
+                    sharedLocks.computeIfAbsent(pid, k -> ConcurrentHashMap.newKeySet()).add(tid);
+                    waitingFor.remove(tid);
+                    return;
+                }
+                // deadlock detection
+                waitingFor.put(tid, Collections.singleton(pid));
+                if (hasDeadlock(tid)) {
+                    waitingFor.remove(tid);
+                    throw new TransactionAbortedException();
+                }
+                try { wait(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+        }
+
+        private synchronized void acquireExclusiveLock(TransactionId tid, PageId pid)
+                throws TransactionAbortedException {
+            while (true) {
+                TransactionId excHolder = exclusiveLocks.get(pid);
+                Set<TransactionId> shrHolders = sharedLocks.getOrDefault(pid, Collections.emptySet());
+
+                boolean canUpgrade = shrHolders.size() == 1 && shrHolders.contains(tid) && excHolder == null;
+                boolean free = excHolder == null && shrHolders.isEmpty();
+                boolean weHoldExc = tid.equals(excHolder);
+
+                if (free || weHoldExc || canUpgrade) {
+                    exclusiveLocks.put(pid, tid);
+                    sharedLocks.getOrDefault(pid, Collections.emptySet()).remove(tid);
+                    waitingFor.remove(tid);
+                    return;
+                }
+                // deadlock detection alrdy done for waitingFor
+                waitingFor.put(tid, Collections.singleton(pid));
+                if (hasDeadlock(tid)) {
+                    waitingFor.remove(tid);
+                    throw new TransactionAbortedException();
+                }
+                try { wait(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+        }
+
+
+        
+
+        public synchronized void releaseLock(TransactionId tid, PageId pid) {
+            exclusiveLocks.remove(pid, tid);
+            Set<TransactionId> shr = sharedLocks.get(pid);
+            if (shr != null) shr.remove(tid);
+            notifyAll();
+        }
+
+        public synchronized void releaseAllLocks(TransactionId tid) {
+            // release exclusive locks
+            exclusiveLocks.entrySet().removeIf(e -> e.getValue().equals(tid));
+            // release shared locks
+            for (Set<TransactionId> holders : sharedLocks.values()) {
+                holders.remove(tid);
+            }
+            waitingFor.remove(tid);
+            notifyAll();
+        }
+
+        public synchronized boolean holdsLock(TransactionId tid, PageId pid) {
+            TransactionId exc = exclusiveLocks.get(pid);
+            if (tid.equals(exc)) return true;
+            Set<TransactionId> shr = sharedLocks.get(pid);
+            return shr != null && shr.contains(tid);
+        }
+
+        public synchronized Set<PageId> getPagesHeldBy(TransactionId tid) {
+            Set<PageId> pages = new HashSet<>();
+            for (Map.Entry<PageId, TransactionId> e : exclusiveLocks.entrySet()) {
+                if (e.getValue().equals(tid)) pages.add(e.getKey());
+            }
+            for (Map.Entry<PageId, Set<TransactionId>> e : sharedLocks.entrySet()) {
+                if (e.getValue().contains(tid)) pages.add(e.getKey());
+            }
+            return pages;
+        }
     }
 
 }
