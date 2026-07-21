@@ -157,6 +157,7 @@ public class BufferPool {
 
     public void transactionComplete(TransactionId tid) {
         //ex 4: transactionComplete to be done here
+	transactionComplete(tid, true);
     }
 
    
@@ -257,6 +258,12 @@ public class BufferPool {
      */
     public synchronized void flushPages(TransactionId tid) throws IOException {
         //exercise 4: flushPages to be done here
+	for (PageId pid : lockManager.getPagesHeldBy(tid)) {
+    		Page page = pageCache.get(pid);
+    		if (page != null && tid.equals(page.isDirty())) {
+        		flushPage(pid);
+    		}
+	}
     }
 
     /**
@@ -344,7 +351,47 @@ public class BufferPool {
         }
 
 
-        
+        /**
+         * Cycle detection on the waits-for graph.
+         * Edge tid -> holder exists if tid is blocked on a page held by holder.
+         * Returns true if starting from tid we can reach tid again.
+         */
+        private synchronized boolean hasDeadlock(TransactionId tid) {
+            Set<TransactionId> visited = new HashSet<>();
+            for (TransactionId next : holdersBlocking(tid)) {
+                if (dfs(next, tid, visited)) return true;
+            }
+            return false;
+        }
+
+        /** Depth-first search for {@code target} in the waits-for graph. */
+        private synchronized boolean dfs(TransactionId current, TransactionId target,
+                                         Set<TransactionId> visited) {
+            if (current.equals(target)) return true;
+            if (!visited.add(current)) return false;
+            for (TransactionId next : holdersBlocking(current)) {
+                if (dfs(next, target, visited)) return true;
+            }
+            return false;
+        }
+
+        /** Transactions that {@code tid} is currently waiting on. */
+        private synchronized Set<TransactionId> holdersBlocking(TransactionId tid) {
+            Set<TransactionId> result = new HashSet<>();
+            Set<PageId> wanted = waitingFor.get(tid);
+            if (wanted == null) return result;
+            for (PageId pid : wanted) {
+                TransactionId exc = exclusiveLocks.get(pid);
+                if (exc != null && !exc.equals(tid)) result.add(exc);
+                Set<TransactionId> shr = sharedLocks.get(pid);
+                if (shr != null) {
+                    for (TransactionId t : shr) {
+                        if (!t.equals(tid)) result.add(t);
+                    }
+                }
+            }
+            return result;
+        }
 
         public synchronized void releaseLock(TransactionId tid, PageId pid) {
             exclusiveLocks.remove(pid, tid);
