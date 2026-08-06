@@ -257,13 +257,12 @@ public class BufferPool {
     /** Write all pages of the specified transaction to disk.
      */
     public synchronized void flushPages(TransactionId tid) throws IOException {
-        //exercise 4: flushPages to be done here
-	for (PageId pid : lockManager.getPagesHeldBy(tid)) {
-    		Page page = pageCache.get(pid);
-    		if (page != null && tid.equals(page.isDirty())) {
-        		flushPage(pid);
-    		}
-	}
+        for (PageId pid : pageCache.keySet()) {
+            Page page = pageCache.get(pid);
+            if (page != null && tid.equals(page.isDirty())) {
+                flushPage(pid);
+            }
+        }
     }
 
     /**
