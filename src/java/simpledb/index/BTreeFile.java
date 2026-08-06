@@ -188,9 +188,35 @@ public class BTreeFile implements DbFile {
                                        Field f)
 					throws DbException, TransactionAbortedException {
 		// some code goes here
-        return null;
+        if (pid.pgcateg() == BTreePageId.LEAF) {
+			return (BTreeLeafPage) getPage(tid, dirtypages, pid, perm);
+		}
+
+		BTreeInternalPage internalPage = (BTreeInternalPage) getPage(tid, dirtypages, pid, Permissions.READ_ONLY);
+		Iterator<BTreeEntry> it = internalPage.iterator();
+
+		BTreeEntry entry = null;
+		while (it.hasNext()) {
+			entry = it.next();
+
+			// if f is null, go left-most child always
+			if (f == null) {
+				return findLeafPage(tid, dirtypages, entry.getLeftChild(), perm, f);
+			}
+
+			// if f < entry key, go left child
+			if (f.compare(Op.LESS_THAN, entry.getKey())) {
+				return findLeafPage(tid, dirtypages, entry.getLeftChild(), perm, f);
+			}
+		}
+
+		// f >= all keys, go to right-most child
+		if (entry != null) {
+			return findLeafPage(tid, dirtypages, entry.getRightChild(), perm, f);
+		}
+
+		throw new DbException("findLeafPage: no entries in internal page");
 	}
-	
 	/**
 	 * Convenience method to find a leaf page when there is no dirtypages HashMap.
 	 * Used by the BTreeFile iterator.
