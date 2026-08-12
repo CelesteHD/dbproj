@@ -118,10 +118,13 @@ public class BufferPool {
             if (commit) {
                 flushPages(tid); // force dirty pages to disk
             } else {
-                // abort: discard dirty pages so they revert to disk state
-                for (PageId pid : lockManager.getPagesHeldBy(tid)) {
-                    Page page = pageCache.get(pid);
-                    if (page != null && tid.equals(page.isDirty())) {
+    // Abort: discard every page on which this transaction held
+    // an exclusive lock. The page may have been modified before
+    // markDirty() was called during a B+Tree split/merge.
+                Set<PageId> pages = lockManager.getExclusivePagesHeldBy(tid);
+
+                for (PageId pid : pages) {
+                    if (pageCache.containsKey(pid)) {
                         discardPage(pid);
                     }
                 }
@@ -302,6 +305,17 @@ public class BufferPool {
             } else {
                 acquireExclusiveLock(tid, pid);
             }
+        }
+        public synchronized Set<PageId> getExclusivePagesHeldBy(TransactionId tid) {
+            Set<PageId> pages = new HashSet<>();
+
+            for (Map.Entry<PageId, TransactionId> e : exclusiveLocks.entrySet()) {
+                if (e.getValue().equals(tid)) {
+                    pages.add(e.getKey());
+                }
+            }
+
+            return pages;
         }
 
         private synchronized void acquireSharedLock(TransactionId tid, PageId pid)

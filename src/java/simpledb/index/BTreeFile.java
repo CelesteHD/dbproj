@@ -354,43 +354,68 @@ public class BTreeFile implements DbFile {
 		// the parent pointers of all the children moving to the new page.  updateParentPointers()
 		// will be useful here.  Return the page into which an entry with the given key field
 		// should be inserted.
+	
 
+			BTreeInternalPage newPage =
+					(BTreeInternalPage) getEmptyPage(
+									tid,
+									dirtypages,
+									BTreePageId.INTERNAL);
 
-		BTreeInternalPage newPage = (BTreeInternalPage) getEmptyPage(tid, dirtypages, BTreePageId.INTERNAL);
+			List<BTreeEntry> entries = new ArrayList<BTreeEntry>();
+			Iterator<BTreeEntry> it = page.iterator();
 
-		Iterator<BTreeEntry> reverseIt = page.reverseIterator();
-		int numToMove = page.getNumEntries() / 2;
-		List<BTreeEntry> toMove = new ArrayList<>();
-		for (int i = 0; i < numToMove; i++) {
-			toMove.add(reverseIt.next());
-		}
-		for (int i = toMove.size() - 1; i >= 0; i--) {
-			BTreeEntry e = toMove.get(i);
-			page.deleteKeyAndRightChild(e);
-			newPage.insertEntry(e);
-		}
+			while (it.hasNext()) {
+					entries.add(it.next());
+			}
 
-		BTreeEntry midEntry = reverseIt.next();
-		page.deleteKeyAndRightChild(midEntry);
+			// Find the middle entry
+			int mid = entries.size() / 2;
+			BTreeEntry midEntry = entries.get(mid);
+			Field midKey = midEntry.getKey();
 
-		Field midKey = midEntry.getKey();
-		BTreeInternalPage parent = getParentWithEmptySlots(tid, dirtypages, page.getParentId(), midKey);
+			// Move entries after the middle entry to the new right page
+			for (int i = mid + 1; i < entries.size(); i++) {
+					BTreeEntry e = entries.get(i);
 
-		midEntry.setLeftChild(page.getId());
-		midEntry.setRightChild(newPage.getId());
-		parent.insertEntry(midEntry);
+					page.deleteKeyAndRightChild(e);
+					newPage.insertEntry(e);
+			}
 
-		updateParentPointers(tid, dirtypages, page);
-		updateParentPointers(tid, dirtypages, newPage);
+			// Remove the middle entry from the left page
+			page.deleteKeyAndRightChild(midEntry);
 
-		dirtypages.put(page.getId(), page);
-		dirtypages.put(newPage.getId(), newPage);
+			// Get parent with an empty slot
+			BTreeInternalPage parent =
+					getParentWithEmptySlots(
+									tid,
+									dirtypages,
+									page.getParentId(),
+									midKey);
 
-		if (field.compare(Op.LESS_THAN_OR_EQ, midKey)) {
-			return page;
-		} else {
-			return newPage;
-		}
+			newPage.setParentId(parent.getId());
+
+			// Create the entry that gets promoted to the parent
+			midEntry.setLeftChild(page.getId());
+			midEntry.setRightChild(newPage.getId());
+
+			parent.insertEntry(midEntry);
+
+			// Update parent pointers
+			updateParentPointers(tid, dirtypages, page);
+			updateParentPointers(tid, dirtypages, newPage);
+
+			// Mark pages dirty
+			dirtypages.put(page.getId(), page);
+			dirtypages.put(newPage.getId(), newPage);
+			dirtypages.put(parent.getId(), parent);
+
+			// Return the page where the new entry should go
+			if (field.compare(Op.LESS_THAN_OR_EQ, midKey)) {
+					return page;
+			} else {
+					return newPage;
+			}
 	}
 	
 	/**
@@ -479,17 +504,18 @@ public class BTreeFile implements DbFile {
 	 * @throws DbException
 	 * @throws TransactionAbortedException
 	 */
-	private void updateParentPointers(TransactionId tid, Map<PageId, Page> dirtypages, BTreeInternalPage page)
-			throws DbException, TransactionAbortedException{
+	private void updateParentPointers(TransactionId tid, Map<PageId, Page> dirtypages,
+			BTreeInternalPage page)
+			throws DbException, TransactionAbortedException {
+
 		Iterator<BTreeEntry> it = page.iterator();
-		BTreePageId pid = page.getId();
-		BTreeEntry e = null;
-		while(it.hasNext()) {
-			e = it.next();
-			updateParentPointer(tid, dirtypages, pid, e.getLeftChild());
-		}
-		if(e != null) {
-			updateParentPointer(tid, dirtypages, pid, e.getRightChild());
+		BTreePageId parentId = page.getId();
+
+		while (it.hasNext()) {
+			BTreeEntry e = it.next();
+
+			updateParentPointer(tid, dirtypages, parentId, e.getLeftChild());
+			updateParentPointer(tid, dirtypages, parentId, e.getRightChild());
 		}
 	}
 	

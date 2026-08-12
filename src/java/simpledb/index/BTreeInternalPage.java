@@ -350,24 +350,38 @@ public class BTreeInternalPage extends BTreePage {
 	 */
 	private void deleteEntry(BTreeEntry e, boolean deleteRightChild) throws DbException {
 		RecordId rid = e.getRecordId();
-		if(rid == null)
+
+		if (rid == null) {
 			throw new DbException("tried to delete entry with null rid");
-		if((rid.getPageId().getPageNumber() != pid.getPageNumber()) || (rid.getPageId().getTableId() != pid.getTableId()))
+		}
+
+		if (rid.getPageId().getPageNumber() != pid.getPageNumber() ||
+			rid.getPageId().getTableId() != pid.getTableId()) {
 			throw new DbException("tried to delete entry on invalid page or table");
-		if (!isSlotUsed(rid.getTupleNumber()))
+		}
+
+		int slot = rid.getTupleNumber();
+
+		if (slot <= 0 || slot >= numSlots || !isSlotUsed(slot)) {
 			throw new DbException("tried to delete null entry.");
-		if(deleteRightChild) {
-			markSlotUsed(rid.getTupleNumber(), false);
 		}
-		else {
-			for(int i = rid.getTupleNumber() - 1; i >= 0; i--) {
-				if(isSlotUsed(i)) {
-					children[i] = children[rid.getTupleNumber()];
-					markSlotUsed(rid.getTupleNumber(), false);
+
+		if (deleteRightChild) {
+			// Delete key[slot] and child[slot].
+			markSlotUsed(slot, false);
+		} else {
+			// Delete key[slot] and child[slot - 1].
+			// The right child must replace the deleted left child.
+			for (int i = slot - 1; i >= 0; i--) {
+				if (isSlotUsed(i)) {
+					children[i] = children[slot];
 					break;
-				}	
+				}
 			}
+
+			markSlotUsed(slot, false);
 		}
+
 		e.setRecordId(null);
 	}
 
@@ -407,34 +421,49 @@ public class BTreeInternalPage extends BTreePage {
 	 */
 	public void updateEntry(BTreeEntry e) throws DbException {
 		RecordId rid = e.getRecordId();
-		if(rid == null)
+
+		if (rid == null) {
 			throw new DbException("tried to update entry with null rid");
-		if((rid.getPageId().getPageNumber() != pid.getPageNumber()) || (rid.getPageId().getTableId() != pid.getTableId()))
+		}
+
+		if (rid.getPageId().getPageNumber() != pid.getPageNumber() ||
+			rid.getPageId().getTableId() != pid.getTableId()) {
 			throw new DbException("tried to update entry on invalid page or table");
-		if (!isSlotUsed(rid.getTupleNumber()))
+		}
+
+		int slot = rid.getTupleNumber();
+
+		if (slot <= 0 || slot >= numSlots || !isSlotUsed(slot)) {
 			throw new DbException("tried to update null entry.");
-		
-		for(int i = rid.getTupleNumber() + 1; i < numSlots; i++) {
-			if(isSlotUsed(i)) {
-				if(keys[i].compare(Op.LESS_THAN, e.getKey())) {
-					throw new DbException("attempt to update entry with invalid key " + e.getKey() +
-							" HINT: updated key must be less than or equal to keys on the right");
+		}
+
+		// Check key ordering with the key on the left.
+		for (int i = slot - 1; i >= 1; i--) {
+			if (isSlotUsed(i)) {
+				if (e.getKey().compare(Op.LESS_THAN, keys[i])) {
+					throw new DbException(
+						"attempt to update entry with invalid key " + e.getKey()
+					);
 				}
 				break;
-			}	
+			}
 		}
-		for(int i = rid.getTupleNumber() - 1; i >= 0; i--) {
-			if(isSlotUsed(i)) {
-				if(i > 0 && keys[i].compare(Op.GREATER_THAN, e.getKey())) {
-					throw new DbException("attempt to update entry with invalid key " + e.getKey() +
-							" HINT: updated key must be greater than or equal to keys on the left");
+
+		// Check key ordering with the key on the right.
+		for (int i = slot + 1; i < numSlots; i++) {
+			if (isSlotUsed(i)) {
+				if (e.getKey().compare(Op.GREATER_THAN, keys[i])) {
+					throw new DbException(
+						"attempt to update entry with invalid key " + e.getKey()
+					);
 				}
-				children[i] = e.getLeftChild().getPageNumber();
 				break;
-			}	
+			}
 		}
-		children[rid.getTupleNumber()] = e.getRightChild().getPageNumber();
-		keys[rid.getTupleNumber()] = e.getKey();
+
+		children[slot - 1] = e.getLeftChild().getPageNumber();
+		children[slot] = e.getRightChild().getPageNumber();
+		keys[slot] = e.getKey();
 	}
 
 	/**
@@ -445,121 +474,138 @@ public class BTreeInternalPage extends BTreePage {
 	 * @param e The entry to add.
 	 */
 	public void insertEntry(BTreeEntry e) throws DbException {
-		if (!e.getKey().getType().equals(td.getFieldType(keyField)))
-			throw new DbException("key field type mismatch, in insertEntry");
+        if (!e.getKey().getType().equals(td.getFieldType(keyField)))
+                throw new DbException("key field type mismatch, in insertEntry");
 
-		if(e.getLeftChild().getTableId() != pid.getTableId() || e.getRightChild().getTableId() != pid.getTableId())
-			throw new DbException("table id mismatch in insertEntry");
+        if (e.getLeftChild().getTableId() != pid.getTableId()
+                        || e.getRightChild().getTableId() != pid.getTableId())
+                throw new DbException("table id mismatch in insertEntry");
 
-		if(childCategory == 0) {
-			if(e.getLeftChild().pgcateg() != e.getRightChild().pgcateg())
-				throw new DbException("child page category mismatch in insertEntry");
+        if (childCategory == 0) {
+                if (e.getLeftChild().pgcateg() != e.getRightChild().pgcateg())
+                        throw new DbException("child page category mismatch in insertEntry");
 
-			childCategory = e.getLeftChild().pgcateg();
-		}
-		else if(e.getLeftChild().pgcateg() != childCategory || e.getRightChild().pgcateg() != childCategory)
-			throw new DbException("child page category mismatch in insertEntry");
+                childCategory = e.getLeftChild().pgcateg();
+        }
+        else if (e.getLeftChild().pgcateg() != childCategory
+                        || e.getRightChild().pgcateg() != childCategory)
+                throw new DbException("child page category mismatch in insertEntry");
 
-		// if this is the first entry, add it and return
-		if(getNumEmptySlots() == getMaxEntries()) {
-			children[0] = e.getLeftChild().getPageNumber();
-			children[1] = e.getRightChild().getPageNumber();
-			keys[1] = e.getKey();
-			markSlotUsed(0, true);
-			markSlotUsed(1, true);
-			e.setRecordId(new RecordId(pid, 1));
-			return;
-		}
+        // First entry
+        if (getNumEmptySlots() == getMaxEntries()) {
+                children[0] = e.getLeftChild().getPageNumber();
+                children[1] = e.getRightChild().getPageNumber();
+                keys[1] = e.getKey();
 
-		// find the first empty slot, starting from 1
-		int emptySlot = -1;
-		for (int i=1; i<numSlots; i++) {
-			if (!isSlotUsed(i)) {
-				emptySlot = i;
-				break;
-			}
-		}
+                markSlotUsed(0, true);
+                markSlotUsed(1, true);
 
-		if (emptySlot == -1)
-			throw new DbException("called insertEntry on page with no empty slots.");        
+                e.setRecordId(new RecordId(pid, 1));
+                return;
+        }
 
-		// find the child pointer matching the left or right child in this entry
-		int lessOrEqKey = -1;
-		for (int i=0; i<numSlots; i++) {
-			if(isSlotUsed(i)) {
-				if(children[i] == e.getLeftChild().getPageNumber() || children[i] == e.getRightChild().getPageNumber()) {
-					if(i > 0 && keys[i].compare(Op.GREATER_THAN, e.getKey())) {
-						throw new DbException("attempt to insert invalid entry with left child " + 
-								e.getLeftChild().getPageNumber() + ", right child " +
-								e.getRightChild().getPageNumber() + " and key " + e.getKey() +
-								" HINT: one of these children must match an existing child on the page" +
-								" and this key must be correctly ordered in between that child's" +
-								" left and right keys");
-					}
-					lessOrEqKey = i;
-					if(children[i] == e.getRightChild().getPageNumber()) {
-						children[i] = e.getLeftChild().getPageNumber();
-					}
-				}
-				else if(lessOrEqKey != -1) {
-					// validate that the next key is greater than or equal to the one we are inserting
-					if(keys[i].compare(Op.LESS_THAN, e.getKey())) {
-						throw new DbException("attempt to insert invalid entry with left child " + 
-								e.getLeftChild().getPageNumber() + ", right child " +
-								e.getRightChild().getPageNumber() + " and key " + e.getKey() +
-								" HINT: one of these children must match an existing child on the page" +
-								" and this key must be correctly ordered in between that child's" +
-								" left and right keys");
-					}
-					break;
-				}
-			}
-		}
+        // Find first empty slot
+        int emptySlot = -1;
 
-		if(lessOrEqKey == -1) {
-			throw new DbException("attempt to insert invalid entry with left child " + 
-					e.getLeftChild().getPageNumber() + ", right child " +
-					e.getRightChild().getPageNumber() + " and key " + e.getKey() +
-					" HINT: one of these children must match an existing child on the page" +
-					" and this key must be correctly ordered in between that child's" +
-					" left and right keys");
-		}
+        for (int i = 1; i < numSlots; i++) {
+                if (!isSlotUsed(i)) {
+                        emptySlot = i;
+                        break;
+                }
+        }
 
-		// shift entries back or forward to fill empty slot and make room for new entry
-		// while keeping entries in sorted order
-		int goodSlot = -1;
-		if(emptySlot < lessOrEqKey) {
-			for(int i = emptySlot; i < lessOrEqKey; i++) {
-				moveEntry(i+1, i);
-			}
-			goodSlot = lessOrEqKey;
-		}
-		else {
-			for(int i = emptySlot; i > lessOrEqKey + 1; i--) {
-				moveEntry(i-1, i);
-			}
-			goodSlot = lessOrEqKey + 1;
-		}
+        if (emptySlot == -1)
+                throw new DbException("called insertEntry on page with no empty slots.");
 
-		// insert new entry into the correct spot in sorted order
-		markSlotUsed(goodSlot, true);
-		Debug.log(1, "BTreeLeafPage.insertEntry: new entry, tableId = %d pageId = %d slotId = %d", pid.getTableId(), pid.getPageNumber(), goodSlot);
-		keys[goodSlot] = e.getKey();
-		children[goodSlot] = e.getRightChild().getPageNumber();
-		e.setRecordId(new RecordId(pid, goodSlot));
+        // Find the child pointer matching this entry
+        int lessOrEqKey = -1;
+
+        for (int i = 0; i < numSlots; i++) {
+                if (isSlotUsed(i)) {
+
+                        if (children[i] == e.getLeftChild().getPageNumber()
+                                        || children[i] == e.getRightChild().getPageNumber()) {
+
+                                if (i > 0 && keys[i].compare(Op.GREATER_THAN, e.getKey())) {
+                                        throw new DbException(
+                                                        "attempt to insert invalid entry with left child "
+                                                                        + e.getLeftChild().getPageNumber()
+                                                                        + ", right child "
+                                                                        + e.getRightChild().getPageNumber()
+                                                                        + " and key " + e.getKey());
+                                }
+
+                                lessOrEqKey = i;
+
+                                if (children[i] == e.getRightChild().getPageNumber()) {
+                                        children[i] = e.getLeftChild().getPageNumber();
+                                }
+                        }
+                        else if (lessOrEqKey != -1) {
+
+                                if (keys[i].compare(Op.LESS_THAN, e.getKey())) {
+                                        throw new DbException(
+                                                        "attempt to insert invalid entry with left child "
+                                                                        + e.getLeftChild().getPageNumber()
+                                                                        + ", right child "
+                                                                        + e.getRightChild().getPageNumber()
+                                                                        + " and key " + e.getKey());
+                                }
+
+                                break;
+                        }
+                }
+        }
+
+        if (lessOrEqKey == -1) {
+                throw new DbException(
+                                "attempt to insert invalid entry with left child "
+                                                + e.getLeftChild().getPageNumber()
+                                                + ", right child "
+                                                + e.getRightChild().getPageNumber()
+                                                + " and key " + e.getKey());
+        }
+
+        // Shift entries to make room
+        int goodSlot = -1;
+
+        if (emptySlot < lessOrEqKey) {
+                for (int i = emptySlot; i < lessOrEqKey; i++) {
+                        moveEntry(i + 1, i);
+                }
+
+                goodSlot = lessOrEqKey;
+        }
+        else {
+                for (int i = emptySlot; i > lessOrEqKey + 1; i--) {
+                        moveEntry(i - 1, i);
+                }
+
+                goodSlot = lessOrEqKey + 1;
+        }
+
+        // Insert entry
+        markSlotUsed(goodSlot, true);
+
+        keys[goodSlot] = e.getKey();
+        children[goodSlot] = e.getRightChild().getPageNumber();
+
+        e.setRecordId(new RecordId(pid, goodSlot));
 	}
-
 	/**
 	 * Move an entry from one slot to another slot, and update the corresponding
 	 * headers
 	 */
 	private void moveEntry(int from, int to) {
-		if(!isSlotUsed(to) && isSlotUsed(from)) {
-			markSlotUsed(to, true);
-			keys[to] = keys[from];
-			children[to] = children[from];
-			markSlotUsed(from, false);
+		if (!isSlotUsed(from)) {
+			return;
 		}
+
+		keys[to] = keys[from];
+		children[to] = children[from];
+
+		markSlotUsed(to, true);
+		markSlotUsed(from, false);
 	}
 
 	/**
